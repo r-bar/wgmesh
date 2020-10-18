@@ -1,0 +1,20 @@
+[package]
+name = "wgmesh"
+version = "0.1.0"
+authors = ["Ryan Barth <ryan@barth.tech>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde = { version = "*", features = ["derive"] }
+serde_yaml = "*"
+clap = { version = "3.0.0-beta.2", features = ["derive", "color", "suggestions"] }
+lazy_static = "*"
+anyhow = "*"
+thiserror = "*"
+ipnet = { version = "*", features = ["serde"] }
+actix-web = { version = "3" }
+lru = "*"
+actix = "*"
+chrono = { version = "*", features = ["serde"] }
