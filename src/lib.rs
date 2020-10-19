@@ -1,18 +1,45 @@
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use std::fs::File;
 use std::io::prelude::*;
-use std::net::{IpAddr, SocketAddr};
 use std::process::{Command, Stdio};
 
 use anyhow;
-use chrono::offset::Utc;
-use chrono::DateTime;
 use clap::Arg;
 use ipnet::IpNet;
+use rand;
 use serde::{Deserialize, Serialize};
+use uuid::v1::{Context, Timestamp};
+use uuid::Uuid;
 
+pub mod host;
 pub mod server;
+
+pub use host::Host;
+
+enum Event {
+    Connect { host: Host },
+    Disconnect { host: Host },
+}
+
+fn timestamp() -> anyhow::Result<u64> {
+    use std::time::SystemTime;
+    let now = SystemTime::now();
+    Ok(now.duration_since(SystemTime::UNIX_EPOCH)?.as_secs())
+}
+
+// FIXME: make private again
+/// Create a v1 uuid. If no node_id is passed uses the local machine's hostname instead
+pub fn uuidv1(node_id: Option<&str>) -> anyhow::Result<Uuid> {
+    let context = Context::new(rand::random());
+    let mut node_id = match node_id {
+        Some(node_id) => String::from(node_id),
+        None => host::local_hostname()?,
+    };
+    let padding = " ".repeat(0_isize.max(6 - (node_id.len() as isize)) as usize);
+    node_id.push_str(&padding);
+    let ts = Timestamp::from_unix(context, timestamp()?, 0);
+    Ok(Uuid::new_v1(ts, node_id.as_bytes())?)
+}
 
 /// Build the command line interface
 pub fn cli() -> clap::App<'static> {
@@ -30,6 +57,7 @@ pub fn cli() -> clap::App<'static> {
                 .about("Add a host to the config")
                 .long_about("Add a host to the config")
                 .arg(Arg::new("name"))
+                .arg(Arg::new("id").short('I').long("id").takes_value(true))
                 .arg(
                     Arg::new("interfaces")
                         .short('i')
@@ -79,15 +107,22 @@ pub fn cli() -> clap::App<'static> {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Config {
+    version: String,
+    network_id: Uuid,
     subnet: IpNet,
-    hosts: Vec<Host>,
+    host: Host,
+    remote_hosts: Vec<Host>,
 }
 
 impl std::default::Default for Config {
     fn default() -> Self {
+        let host = Host::local().unwrap();
         Config {
+            version: String::from("v1"),
+            network_id: uuidv1(Some(&host.name)).unwrap(),
             subnet: "10.42.0.0/24".parse().unwrap(),
-            hosts: Vec::new(),
+            host,
+            remote_hosts: Vec::new(),
         }
     }
 }
@@ -115,7 +150,7 @@ impl Config {
     /// Adds a host to the config. Can fail if a host with the same name or addresses already
     /// exists.
     pub fn add_host(&mut self, host: Host) -> anyhow::Result<()> {
-        for existing_host in self.hosts.iter() {
+        for existing_host in self.remote_hosts.iter() {
             if existing_host.name == host.name {
                 return Err(anyhow::anyhow!(
                     "host with name \"{}\" already exists",
@@ -123,56 +158,21 @@ impl Config {
                 ));
             }
         }
-        self.hosts.push(host);
+        self.remote_hosts.push(host);
         Ok(())
     }
 
     /// Remove a host from the config by name
     pub fn remove_host(&mut self, name: &str) {
-        self.hosts.retain(|host| host.name != name);
+        self.remote_hosts.retain(|host| host.name != name);
     }
 
     pub fn hosts_by_name<'a>(&'a self) -> HashMap<String, &'a Host> {
         let mut out = HashMap::new();
-        for host in self.hosts.iter() {
+        for host in self.remote_hosts.iter() {
             out.insert(host.name.clone(), host);
         }
         out
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Host {
-    name: String,
-    last_seen: Option<DateTime<Utc>>,
-    wireguard_address: Option<IpAddr>,
-    public_key: String,
-    private_key: String,
-    interfaces: Vec<IpNet>,
-}
-
-impl TryFrom<&clap::ArgMatches> for Host {
-    type Error = anyhow::Error;
-
-    fn try_from(m: &clap::ArgMatches) -> anyhow::Result<Self> {
-        Ok(Host {
-            name: m.value_of("name").unwrap().into(),
-            wireguard_address: m.value_of("wireguard_address").and_then(|s| s.parse().ok()),
-            public_key: m
-                .value_of("public_key")
-                .map(String::from)
-                .unwrap_or_else(|| String::new()),
-            private_key: m
-                .value_of("private_key")
-                .map(String::from)
-                .unwrap_or_else(|| String::new()),
-            last_seen: None,
-            interfaces: m
-                .value_of("interfaces")
-                .iter()
-                .filter_map(|i| i.parse().ok())
-                .collect(),
-        })
     }
 }
 

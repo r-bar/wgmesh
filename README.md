@@ -4,6 +4,14 @@ wgmesh is a lightweight program for creating and managing mesh networks using
 the wireguard VPN.
 
 
+## Commands
+
+* `connect`: Perform one time connection to remote network. Do not start server.
+* `server`: Start the network daemon
+* `add-host`: Manually add host to network configuration
+* `remove-host`: Manually remove host from network configuration
+* `disconnect`: Perform one time disconnection from the network
+
 # Design
 
 wgmesh will connect to the given host and attempt to contact a wgmesh daemon on
@@ -35,9 +43,19 @@ host to alert other nodes about your connection.
 
 ### GET `/ping`
 
-Check connection to remote host.
+Check connection to remote host. Used to determine if the server is up on the
+remote host in addition to the connection.
 
 ### POST `/disconnect`
 
 Gracefully disconnect from the network. The receiving host will alert other
 hosts of the disconnection.
+
+### POST `/events`
+
+Pass an event on to another host.
+
+
+### GET `/events`
+
+Get a list of the most recent events in the order they were received.
