@@ -21,3 +21,8 @@ chrono = { version = "*", features = ["serde"] }
 uuid = { version = "*", features = ["serde", "v1"] }
 rand = "*"
 regex = "*"
+failure = "*"
+derive_more = "*"
+reqwest = "*"
+log = "*"
+simple_logger = "*"

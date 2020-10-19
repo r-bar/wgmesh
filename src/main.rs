@@ -1,16 +1,13 @@
 use std::convert::TryFrom;
-use std::net::SocketAddr;
 
 use actix;
-use wgmesh::host;
-use wgmesh::{cli, generate_private_key, generate_public_key, uuidv1, Config, Host};
+use wgmesh::{cli, configure_logging, generate_private_key, Config, Host};
 
 fn main() {
     let localhost = Host::local().unwrap();
-    dbg!(localhost);
-    //dbg!(uuidv1());
     let private_key = generate_private_key().unwrap();
     let args = cli().get_matches();
+    configure_logging(args.value_of("log_level").unwrap_or("info"));
     let config_path = args.value_of("config").unwrap();
     let mut config = match Config::try_from_path(&config_path) {
         Ok(config) => config,
@@ -32,7 +29,7 @@ fn main() {
         }
         Some(("remove-host", m)) => {
             let name = m.value_of("name").expect("host name not provided");
-            config.remove_host(&name);
+            //config.remove_host(&name);
             println!("Removed {} from network", &name);
         }
         _ => unreachable!(),

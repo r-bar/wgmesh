@@ -2,12 +2,16 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
 use std::process::{Command, Stdio};
+use std::str::FromStr;
 
 use anyhow;
+use chrono::{DateTime, Utc};
 use clap::Arg;
 use ipnet::IpNet;
+use log;
 use rand;
 use serde::{Deserialize, Serialize};
+use simple_logger::SimpleLogger;
 use uuid::v1::{Context, Timestamp};
 use uuid::Uuid;
 
@@ -16,9 +20,46 @@ pub mod server;
 
 pub use host::Host;
 
-enum Event {
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct Event {
+    id: Uuid,
+    created_at: DateTime<Utc>,
+    data: EventData,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum EventData {
     Connect { host: Host },
     Disconnect { host: Host },
+}
+
+impl Event {
+    fn new(data: EventData) -> Self {
+        Event {
+            id: uuidv1(None).unwrap(),
+            created_at: Utc::now(),
+            data,
+        }
+    }
+
+    pub fn connect(host: Host) -> Self {
+        Event::new(EventData::Connect { host })
+    }
+
+    pub fn disconnect(host: Host) -> Self {
+        Event::new(EventData::Disconnect { host })
+    }
+
+    pub async fn send(self, address: &str) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+}
+
+pub fn configure_logging(log_level: &str) -> anyhow::Result<()> {
+    let level = log::LevelFilter::from_str(log_level)?;
+    let logger = SimpleLogger::new().with_level(level);
+    logger.init()?;
+    Ok(())
 }
 
 fn timestamp() -> anyhow::Result<u64> {
@@ -52,12 +93,18 @@ pub fn cli() -> clap::App<'static> {
                 .long("config")
                 .default_value("network.yaml"),
         )
+        .arg(
+            Arg::new("log_level")
+                .long("log-level")
+                .short('l')
+                .takes_value(true)
+                .default_value("info"),
+        )
         .subcommand(
             clap::App::new("add-host")
                 .about("Add a host to the config")
                 .long_about("Add a host to the config")
                 .arg(Arg::new("name"))
-                .arg(Arg::new("id").short('I').long("id").takes_value(true))
                 .arg(
                     Arg::new("interfaces")
                         .short('i')
@@ -111,7 +158,7 @@ pub struct Config {
     network_id: Uuid,
     subnet: IpNet,
     host: Host,
-    remote_hosts: Vec<Host>,
+    remote_hosts: HashMap<IpNet, Host>,
 }
 
 impl std::default::Default for Config {
@@ -122,7 +169,7 @@ impl std::default::Default for Config {
             network_id: uuidv1(Some(&host.name)).unwrap(),
             subnet: "10.42.0.0/24".parse().unwrap(),
             host,
-            remote_hosts: Vec::new(),
+            remote_hosts: HashMap::new(),
         }
     }
 }
@@ -150,7 +197,7 @@ impl Config {
     /// Adds a host to the config. Can fail if a host with the same name or addresses already
     /// exists.
     pub fn add_host(&mut self, host: Host) -> anyhow::Result<()> {
-        for existing_host in self.remote_hosts.iter() {
+        for (_, existing_host) in self.remote_hosts.iter() {
             if existing_host.name == host.name {
                 return Err(anyhow::anyhow!(
                     "host with name \"{}\" already exists",
@@ -158,18 +205,18 @@ impl Config {
                 ));
             }
         }
-        self.remote_hosts.push(host);
+        self.remote_hosts.insert(host.wireguard_address, host);
         Ok(())
     }
 
     /// Remove a host from the config by name
-    pub fn remove_host(&mut self, name: &str) {
-        self.remote_hosts.retain(|host| host.name != name);
+    pub fn remove_host(&mut self, ip: &IpNet) {
+        self.remote_hosts.remove(ip);
     }
 
     pub fn hosts_by_name<'a>(&'a self) -> HashMap<String, &'a Host> {
         let mut out = HashMap::new();
-        for host in self.remote_hosts.iter() {
+        for host in self.remote_hosts.values() {
             out.insert(host.name.clone(), host);
         }
         out

@@ -132,9 +132,7 @@ impl FromStr for Interface {
                     .and_then(|c| c.as_str().parse().ok())
             })
             .collect();
-        dbg!(lines[1]);
         let mac_cap = IFACE_MAC.captures(lines[1]);
-        dbg!(&mac_cap);
         let mac = mac_cap
             .and_then(|cap| cap.get(1))
             .map(|m| m.as_str().to_owned())
